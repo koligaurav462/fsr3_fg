@@ -83,5 +83,8 @@ public:
 
 private:
 	FfxErrorCode CreateContextDeferred(const FFInterpolatorDispatchParameters& Parameters);
+	static bool ContextDescriptionsEqual(
+		const FfxFrameInterpolationContextDescription& a,
+		const FfxFrameInterpolationContextDescription& b);
 	void DestroyContext();
 };

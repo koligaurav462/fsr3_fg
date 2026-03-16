@@ -159,7 +159,8 @@ FfxErrorCode FFInterpolator::CreateContextDeferred(const FFInterpolatorDispatchP
 
 	if (m_FSRContext)
 	{
-		if (memcmp(&desc, &m_ContextDescription, sizeof(m_ContextDescription)) == 0)
+		// Compare only meaningful fields to avoid false mismatches from struct padding
+		if (ContextDescriptionsEqual(desc, m_ContextDescription))
 			return FFX_OK;
 
 		m_ContextFlushPending = true;
@@ -227,6 +228,19 @@ FfxErrorCode FFInterpolator::CreateContextDeferred(const FFInterpolatorDispatchP
 	}
 
 	return FFX_OK;
+}
+
+bool FFInterpolator::ContextDescriptionsEqual(
+	const FfxFrameInterpolationContextDescription& a,
+	const FfxFrameInterpolationContextDescription& b)
+{
+	return a.flags == b.flags &&
+		a.maxRenderSize.width == b.maxRenderSize.width &&
+		a.maxRenderSize.height == b.maxRenderSize.height &&
+		a.displaySize.width == b.displaySize.width &&
+		a.displaySize.height == b.displaySize.height &&
+		a.backBufferFormat == b.backBufferFormat &&
+		a.previousInterpolationSourceFormat == b.previousInterpolationSourceFormat;
 }
 
 void FFInterpolator::DestroyContext()

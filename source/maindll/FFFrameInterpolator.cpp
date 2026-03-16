@@ -1,6 +1,7 @@
 #include <dxgi1_6.h>
 #include <numbers>
 #include <chrono>
+#include <thread>
 #include "NGX/NvNGX.h"
 #include "FFFrameInterpolator.h"
 #include "Util.h"
@@ -19,6 +20,10 @@ int g_GenerationRectLeft = 0;
 int g_GenerationRectTop = 0;
 int g_GenerationRectWidth = 0;
 int g_GenerationRectHeight = 0;
+float g_PresentationDelayMs = 0.0f;
+
+static uint64_t g_LastConfigRefreshFrame = 0;
+static constexpr uint64_t CONFIG_REFRESH_INTERVAL = 300;
 
 extern "C" void __declspec(dllexport) RefreshGlobalConfiguration()
 {
@@ -36,6 +41,7 @@ extern "C" void __declspec(dllexport) RefreshGlobalConfiguration()
 	g_GenerationRectTop = Util::GetSetting(L"GenerationRect", L"Top", 0);
 	g_GenerationRectWidth = Util::GetSetting(L"GenerationRect", L"Width", 0);
 	g_GenerationRectHeight = Util::GetSetting(L"GenerationRect", L"Height", 0);
+	g_PresentationDelayMs = Util::GetSetting(L"PresentationDelayMs", 0.0f);
 }
 
 FFFrameInterpolator::FFFrameInterpolator(uint32_t OutputWidth, uint32_t OutputHeight)
@@ -109,6 +115,13 @@ FfxErrorCode FFFrameInterpolator::Dispatch(void *CommandList, NGXInstanceParamet
 
 		m_DispatchCount++;
 		UpdateLetterboxDetection(&gameBackBufferResource);
+
+		// Periodically refresh INI config (avoid per-frame disk I/O)
+		if (m_DispatchCount - g_LastConfigRefreshFrame >= CONFIG_REFRESH_INTERVAL)
+		{
+			RefreshGlobalConfiguration();
+			g_LastConfigRefreshFrame = m_DispatchCount;
+		}
 
 		if (!enableInterpolation)
 			return FFX_OK;
@@ -189,6 +202,23 @@ FfxErrorCode FFFrameInterpolator::Dispatch(void *CommandList, NGXInstanceParamet
 			if (LoadTextureFromNGXParameters(NGXParameters, "DLSSG.OutputInterpolated", &outputInterp, FFX_RESOURCE_STATE_UNORDERED_ACCESS))
 				CopyTexture(GetActiveCommandList(), &outputInterp, &gameBackBufferResource);
 		}
+	}
+
+	// Frame pacing: optional delay to smooth GPU utilization
+	extern float g_PresentationDelayMs;
+	if (g_PresentationDelayMs > 0.0f)
+	{
+		static auto lastPresentTime = std::chrono::steady_clock::now();
+		auto now = std::chrono::steady_clock::now();
+		float elapsedMs = std::chrono::duration<float, std::milli>(now - lastPresentTime).count();
+
+		if (elapsedMs < g_PresentationDelayMs)
+		{
+			auto sleepDuration = std::chrono::duration<float, std::milli>(g_PresentationDelayMs - elapsedMs);
+			std::this_thread::sleep_for(sleepDuration);
+		}
+
+		lastPresentTime = std::chrono::steady_clock::now();
 	}
 
  	return dispatchStatus;

@@ -21,7 +21,7 @@ private:
 	static constexpr uint32_t MAX_DIMENSION = 4320;
 	static constexpr float BLACK_THRESHOLD = 0.03f;
 	static constexpr uint32_t STABILITY_FRAMES = 3;
-	static constexpr uint32_t DETECTION_INTERVAL = 60;
+	static constexpr uint32_t DETECTION_INTERVAL = 300;
 	bool m_ReadbackPending = false;
 	uint32_t m_LastFrameWidth = 0;
 	uint32_t m_LastFrameHeight = 0;
