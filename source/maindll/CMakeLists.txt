@@ -80,6 +80,13 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
 			"/wd4200"	# nonstandard extension used: zero-sized array in struct/union
 			"/wd4201"	# nonstandard extension used: nameless struct/union
 			"/wd4324"	# '': structure was padded due to alignment specifier
+
+			# Release optimizations
+			"$<$<CONFIG:RELEASE>:/O2>"		# Maximum speed optimization
+			"$<$<CONFIG:RELEASE>:/Oi>"		# Enable intrinsic functions
+			"$<$<CONFIG:RELEASE>:/Ot>"		# Favor fast code
+			"$<$<CONFIG:RELEASE>:/fp:fast>"	# Fast floating-point model
+			"$<$<CONFIG:RELEASE>:/arch:AVX2>"	# AVX2 instruction set
 	)
 
 	target_link_options(
@@ -87,6 +94,8 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
 		PRIVATE
 			# Force generate release PDBs: https://learn.microsoft.com/en-us/cpp/build/reference/debug-generate-debug-info
 			"$<$<CONFIG:RELEASE>:/DEBUG:FULL;/OPT:REF;/OPT:ICF>"
+			# Allow duplicate symbols from DX12+VK SDK backends (swapchain functions with identical signatures)
+			"/FORCE:MULTIPLE"
 			# Anonymize RSDS PDB paths
 			"$<$<CONFIG:RELEASE>:/PDBALTPATH:$<TARGET_FILE_PREFIX:${CURRENT_PROJECT}>$<TARGET_FILE_BASE_NAME:${CURRENT_PROJECT}>.pdb>"
 	)

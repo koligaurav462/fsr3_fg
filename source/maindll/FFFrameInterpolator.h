@@ -3,6 +3,7 @@
 #include <FidelityFX/host/ffx_opticalflow.h>
 #include "FFInterfaceWrapper.h"
 #include "FFInterpolator.h"
+#include "GameQuirks.h"
 
 struct NGXInstanceParameters;
 
@@ -25,10 +26,35 @@ private:
 	const uint32_t m_SwapchainWidth; // Final image presented to the screen dimensions
 	const uint32_t m_SwapchainHeight;
 
-	FfxFloatCoords2D m_HDRLuminanceRange = { 0.0001f, 1000.0f };
+	FfxFloatCoords2D m_HDRLuminanceRange = {};
 	bool m_HDRLuminanceRangeSet = false;
 
-	// Transient
+	// Game engine detection
+	bool m_EngineDetected = false;
+	GameEngine m_DetectedEngine = GameEngine::Unknown;
+	GameQuirk m_ActiveQuirks = GameQuirk::None;
+	float m_QuirkMVScaleX = 1.0f;
+	float m_QuirkMVScaleY = 1.0f;
+
+	// Performance safety
+	bool m_InterpolationDisabledForPerf = false;
+
+protected:
+	// Auto letterbox detection state
+	struct LetterboxDetection {
+		uint32_t confirmedTopBar = 0;
+		uint32_t confirmedBottomBar = 0;
+		uint32_t confirmedLeftBar = 0;
+		uint32_t confirmedRightBar = 0;
+
+		uint64_t lastDetectionFrame = 0;
+		bool enabled = false;
+		mutable bool loggedDetection = false;
+	};
+	LetterboxDetection m_Letterbox;
+	uint64_t m_DispatchCount = 0;
+
+private:
 	uint32_t m_PreUpscaleRenderWidth = 0; // GBuffer dimensions
 	uint32_t m_PreUpscaleRenderHeight = 0;
 
@@ -53,6 +79,12 @@ protected:
 	virtual FfxCommandList GetActiveCommandList() const = 0;
 
 	virtual void CopyTexture(FfxCommandList CommandList, const FfxResource *Destination, const FfxResource *Source) = 0;
+
+	// Letterbox auto-detection (override in DX12 implementation)
+	virtual void InitLetterboxDetection() {}
+	virtual void UpdateLetterboxDetection(const FfxResource *Backbuffer) {}
+	virtual void CleanupLetterboxDetection() {}
+	void ApplyLetterboxToRect(int& outLeft, int& outTop, int& outWidth, int& outHeight) const;
 
 	virtual bool LoadTextureFromNGXParameters(
 		NGXInstanceParameters *NGXParameters,

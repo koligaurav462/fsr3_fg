@@ -36,6 +36,12 @@ struct FFInterpolatorDispatchParameters
 	bool DebugTearLines;
 	bool DebugView;
 
+	// Generation Rect: Custom interpolation region (0,0,0,0 = full screen)
+	int InterpolationRectLeft;
+	int InterpolationRectTop;
+	int InterpolationRectWidth;   // 0 = use display width
+	int InterpolationRectHeight;  // 0 = use display height
+
     float CameraNear;
 	float CameraFar;
 	float CameraFovAngleVertical;
@@ -59,6 +65,8 @@ private:
 	std::optional<FfxResourceInternal> m_DilatedDepth;
 	std::optional<FfxResourceInternal> m_DilatedMotionVectors;
 	std::optional<FfxResourceInternal> m_ReconstructedPrevDepth;
+
+	uint64_t m_FrameID = 0;
 
 public:
 	FFInterpolator(

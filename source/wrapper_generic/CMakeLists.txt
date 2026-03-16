@@ -78,6 +78,13 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
 			"/wd4200"	# nonstandard extension used: zero-sized array in struct/union
 			"/wd4201"	# nonstandard extension used: nameless struct/union
 			"/wd4324"	# '': structure was padded due to alignment specifier
+
+			# Release optimizations
+			"$<$<CONFIG:RELEASE>:/O2>"		# Maximum speed optimization
+			"$<$<CONFIG:RELEASE>:/Oi>"		# Enable intrinsic functions
+			"$<$<CONFIG:RELEASE>:/Ot>"		# Favor fast code
+			"$<$<CONFIG:RELEASE>:/fp:fast>"	# Fast floating-point model
+			"$<$<CONFIG:RELEASE>:/arch:AVX2>"	# AVX2 instruction set
 	)
 
 	target_link_options(

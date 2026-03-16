@@ -41,10 +41,24 @@ FfxErrorCode FFInterpolator::Dispatch(const FFInterpolatorDispatchParameters& Pa
 		dispatchDesc.currentBackBuffer_HUDLess = Parameters.InputHUDLessColorBuffer;
 		dispatchDesc.output = Parameters.OutputInterpolatedColorBuffer;
 
-		dispatchDesc.interpolationRect = { 0,
-										   0,
-										   static_cast<int>(dispatchDesc.displaySize.width),
-										   static_cast<int>(dispatchDesc.displaySize.height) };
+if (Parameters.InterpolationRectWidth > 0 && Parameters.InterpolationRectHeight > 0)
+		{
+			dispatchDesc.interpolationRect = {
+				Parameters.InterpolationRectLeft,
+				Parameters.InterpolationRectTop,
+				Parameters.InterpolationRectWidth,
+				Parameters.InterpolationRectHeight
+			};
+		}
+		else
+		{
+			dispatchDesc.interpolationRect = {
+				0,
+				0,
+				static_cast<int>(dispatchDesc.displaySize.width),
+				static_cast<int>(dispatchDesc.displaySize.height)
+			};
+		}
 
 		dispatchDesc.opticalFlowVector = Parameters.InputOpticalFlowVector;
 		dispatchDesc.opticalFlowSceneChangeDetection = Parameters.InputOpticalFlowSceneChangeDetection;
@@ -65,7 +79,7 @@ FfxErrorCode FFInterpolator::Dispatch(const FFInterpolatorDispatchParameters& Pa
 		dispatchDesc.minMaxLuminance[0] = Parameters.MinMaxLuminance.x;
 		dispatchDesc.minMaxLuminance[1] = Parameters.MinMaxLuminance.y;
 
-		dispatchDesc.frameID = 0; // Not async and not bindless. Don't bother.
+		dispatchDesc.frameID = m_FrameID++;
 
 		dispatchDesc.dilatedDepth = m_SharedBackendInterface.fpGetResource(&m_SharedBackendInterface, *m_DilatedDepth);
 		dispatchDesc.dilatedMotionVectors = m_SharedBackendInterface.fpGetResource(&m_SharedBackendInterface, *m_DilatedMotionVectors);
@@ -123,8 +137,13 @@ FfxErrorCode FFInterpolator::CreateContextDeferred(const FFInterpolatorDispatchP
 	if (Parameters.MotionVectorJitterCancellation)
 		desc.flags |= FFX_FRAMEINTERPOLATION_ENABLE_JITTER_MOTION_VECTORS;
 
-	if (Parameters.MotionVectorsDilated)
-		desc.flags |= FFX_FRAMEINTERPOLATION_ENABLE_PREDILATED_MOTION_VECTORS;
+	// FFX_FRAMEINTERPOLATION_ENABLE_PREDILATED_MOTION_VECTORS was removed in SDK 1.1.4.
+	// The SDK now handles predilated motion vectors internally.
+	(void)Parameters.MotionVectorsDilated;
+
+	extern bool g_EnableAsyncCompute;
+	if (g_EnableAsyncCompute)
+		desc.flags |= FFX_FRAMEINTERPOLATION_ENABLE_ASYNC_SUPPORT;
 
 	desc.maxRenderSize = { m_MaxRenderWidth, m_MaxRenderHeight };
 	desc.displaySize = desc.maxRenderSize;

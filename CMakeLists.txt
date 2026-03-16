@@ -77,6 +77,13 @@ endif()
 
 install(
     FILES
+        "${PROJECT_RESOURCES_PATH}/dlssg_to_fsr3.ini"
+    DESTINATION
+        "/"
+)
+
+install(
+    FILES
         "${PROJECT_RESOURCES_PATH}/binary_dist_license.txt"
     DESTINATION
         "/"

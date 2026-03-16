@@ -6,5 +6,12 @@
 !.vs/launch.vs.json
 !.vs/launch_with_automation.ps1
 
+# CMake build artifacts
+CMakeCache.txt
+CMakeFiles/
+
+# Workspace files
+*.code-workspace
+
 # Artifacts
 bin/*

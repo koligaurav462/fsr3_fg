@@ -66,4 +66,49 @@ namespace Util
 		const static auto iniPath = GetThisDllPath() + L"\\dlssg_to_fsr3.ini";
 		return GetPrivateProfileIntW(L"Debug", Key, DefaultValue, iniPath.c_str()) != 0;
 	}
+
+	bool GetSetting(const wchar_t *Section, const wchar_t *Key, bool DefaultValue)
+	{
+		const static auto iniPath = GetThisDllPath() + L"\\dlssg_to_fsr3.ini";
+		return GetPrivateProfileIntW(Section, Key, DefaultValue, iniPath.c_str()) != 0;
+	}
+
+	int GetSetting(const wchar_t *Key, int DefaultValue)
+	{
+		wchar_t envKey[256];
+		swprintf_s(envKey, L"DLSSGTOFSR3_%s", Key);
+
+		wchar_t envVal[64];
+		if (GetEnvironmentVariableW(envKey, envVal, std::size(envVal)) > 0)
+			return _wtoi(envVal);
+
+		const static auto iniPath = GetThisDllPath() + L"\\dlssg_to_fsr3.ini";
+		return GetPrivateProfileIntW(L"Tuning", Key, DefaultValue, iniPath.c_str());
+	}
+
+	int GetSetting(const wchar_t *Section, const wchar_t *Key, int DefaultValue)
+	{
+		const static auto iniPath = GetThisDllPath() + L"\\dlssg_to_fsr3.ini";
+		return GetPrivateProfileIntW(Section, Key, DefaultValue, iniPath.c_str());
+	}
+
+	float GetSetting(const wchar_t *Key, float DefaultValue)
+	{
+		wchar_t envKey[256];
+		swprintf_s(envKey, L"DLSSGTOFSR3_%s", Key);
+
+		wchar_t envVal[64];
+		if (GetEnvironmentVariableW(envKey, envVal, std::size(envVal)) > 0)
+			return wcstof(envVal, nullptr);
+
+		const static auto iniPath = GetThisDllPath() + L"\\dlssg_to_fsr3.ini";
+
+		wchar_t buf[64];
+		GetPrivateProfileStringW(L"Tuning", Key, L"", buf, std::size(buf), iniPath.c_str());
+
+		if (buf[0] == L'\0')
+			return DefaultValue;
+
+		return wcstof(buf, nullptr);
+	}
 }

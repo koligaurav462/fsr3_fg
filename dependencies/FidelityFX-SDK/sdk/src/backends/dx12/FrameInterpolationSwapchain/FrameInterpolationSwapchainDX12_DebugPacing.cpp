@@ -44,7 +44,7 @@ ID3D12DescriptorHeap*   s_debugPacingDescRingBuffer;
 uint32_t                s_debugPacingNextRtvDescriptor;
 ID3D12DescriptorHeap*   s_debugPacingDescHeapRtvCpu;
 ID3D12Resource*         s_debugPacingConstantBuffer[FFX_FRAME_INTERPOLATION_SWAP_CHAIN_MAX_BUFFER_COUNT];
-uint32_t                s_debugPacingFrameIndex;
+static uint32_t         s_debugPacingFrameIndex;
 const unsigned int      s_debugPacingConstantBufferSize = 256u;
 
 // create the pipeline state to use for UI composition

@@ -1,5 +1,6 @@
 #include <dxgi1_6.h>
 #include <numbers>
+#include <chrono>
 #include "NGX/NvNGX.h"
 #include "FFFrameInterpolator.h"
 #include "Util.h"
@@ -8,11 +9,33 @@ bool g_EnableDebugOverlay = false;
 bool g_EnableDebugTearLines = false;
 bool g_EnableInterpolatedFramesOnly = false;
 
+int g_OpticalFlowBlockSize = 8;
+float g_HDRLuminanceMin = 0.0001f;
+float g_HDRLuminanceMax = 1000.0f;
+float g_DefaultFOV = 90.0f;
+bool g_EnableAsyncCompute = true;
+float g_MinBaseFPS = 0.0f;
+int g_GenerationRectLeft = 0;
+int g_GenerationRectTop = 0;
+int g_GenerationRectWidth = 0;
+int g_GenerationRectHeight = 0;
+
 extern "C" void __declspec(dllexport) RefreshGlobalConfiguration()
 {
 	g_EnableDebugOverlay = Util::GetSetting(L"EnableDebugOverlay", false);
 	g_EnableDebugTearLines = Util::GetSetting(L"EnableDebugTearLines", false);
 	g_EnableInterpolatedFramesOnly = Util::GetSetting(L"EnableInterpolatedFramesOnly", false);
+
+	g_OpticalFlowBlockSize = Util::GetSetting(L"OpticalFlowBlockSize", 8);
+	g_HDRLuminanceMin = Util::GetSetting(L"HDRLuminanceMin", 0.0001f);
+	g_HDRLuminanceMax = Util::GetSetting(L"HDRLuminanceMax", 1000.0f);
+	g_DefaultFOV = Util::GetSetting(L"DefaultFOV", 90.0f);
+	g_EnableAsyncCompute = Util::GetSetting(L"EnableAsyncCompute", true);
+	g_MinBaseFPS = Util::GetSetting(L"MinBaseFPS", 0.0f);
+	g_GenerationRectLeft = Util::GetSetting(L"GenerationRect", L"Left", 0);
+	g_GenerationRectTop = Util::GetSetting(L"GenerationRect", L"Top", 0);
+	g_GenerationRectWidth = Util::GetSetting(L"GenerationRect", L"Width", 0);
+	g_GenerationRectHeight = Util::GetSetting(L"GenerationRect", L"Height", 0);
 }
 
 FFFrameInterpolator::FFFrameInterpolator(uint32_t OutputWidth, uint32_t OutputHeight)
@@ -20,6 +43,7 @@ FFFrameInterpolator::FFFrameInterpolator(uint32_t OutputWidth, uint32_t OutputHe
 	  m_SwapchainHeight(OutputHeight)
 {
 	RefreshGlobalConfiguration();
+	m_HDRLuminanceRange = { g_HDRLuminanceMin, g_HDRLuminanceMax };
 }
 
 FFFrameInterpolator::~FFFrameInterpolator()
@@ -41,12 +65,50 @@ FfxErrorCode FFFrameInterpolator::Dispatch(void *CommandList, NGXInstanceParamet
 	FfxResource gameBackBufferResource = {};
 	FfxResource gameRealOutputResource = {};
 
+	// Lazy engine detection on first dispatch
+	if (!m_EngineDetected) [[unlikely]]
+	{
+		m_EngineDetected = true;
+
+		wchar_t exePath[MAX_PATH] = {};
+		GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+
+		std::wstring exeName = exePath;
+		auto lastSlash = exeName.find_last_of(L"\\/");
+		if (lastSlash != std::wstring::npos)
+			exeName = exeName.substr(lastSlash + 1);
+
+		DetectGameEngineQuirks(exeName, m_DetectedEngine, m_ActiveQuirks, m_QuirkMVScaleX, m_QuirkMVScaleY);
+		DetectGameEngineByDLLs(m_DetectedEngine, m_ActiveQuirks);
+
+		char exeNameNarrow[MAX_PATH] = {};
+		wcstombs_s(nullptr, exeNameNarrow, exeName.c_str(), std::size(exeNameNarrow) - 1);
+		spdlog::info("Game engine detected: {} (exe: {})", GetEngineName(m_DetectedEngine), exeNameNarrow);
+
+		if (m_ActiveQuirks != GameQuirk::None)
+		{
+			if (HasQuirk(m_ActiveQuirks, GameQuirk::DepthInverted))
+				spdlog::info("  Applied quirk: Force depth inverted");
+			if (HasQuirk(m_ActiveQuirks, GameQuirk::ForceTAAJitter))
+				spdlog::info("  Applied quirk: Assume TAA jitter present");
+			if (HasQuirk(m_ActiveQuirks, GameQuirk::DisablePredilatedMVs))
+				spdlog::info("  Applied quirk: Disable predilated motion vectors");
+			if (HasQuirk(m_ActiveQuirks, GameQuirk::MotionVectorScaleOverride))
+				spdlog::info("  Applied quirk: Motion vector scale override ({:.3f}, {:.3f})", m_QuirkMVScaleX, m_QuirkMVScaleY);
+			if (HasQuirk(m_ActiveQuirks, GameQuirk::HUDlessBufferFix))
+				spdlog::info("  Applied quirk: HUDless buffer fix");
+		}
+	}
+
 	const auto dispatchStatus = [&]() -> FfxErrorCode
 	{
 		const bool enableInterpolation = NGXParameters->GetUIntOrDefault("DLSSG.EnableInterp", 0) != 0;
 
 		LoadTextureFromNGXParameters(NGXParameters, "DLSSG.Backbuffer", &gameBackBufferResource, FFX_RESOURCE_STATE_COMPUTE_READ);
 		LoadTextureFromNGXParameters(NGXParameters, "DLSSG.OutputReal", &gameRealOutputResource, FFX_RESOURCE_STATE_UNORDERED_ACCESS);
+
+		m_DispatchCount++;
+		UpdateLetterboxDetection(&gameBackBufferResource);
 
 		if (!enableInterpolation)
 			return FFX_OK;
@@ -68,6 +130,39 @@ FfxErrorCode FFFrameInterpolator::Dispatch(void *CommandList, NGXInstanceParamet
 
 		fsrFiDispatchDesc.DebugView = g_EnableDebugOverlay;
 		fsrFiDispatchDesc.DebugTearLines = g_EnableDebugTearLines;
+
+		// Performance safety: skip interpolation if base FPS is too low
+		extern float g_MinBaseFPS;
+		if (g_MinBaseFPS > 0.0f)
+		{
+			static auto lastFrameTime = std::chrono::steady_clock::now();
+			auto now = std::chrono::steady_clock::now();
+			float frameDeltaMs = std::chrono::duration<float, std::milli>(now - lastFrameTime).count();
+			lastFrameTime = now;
+
+			if (frameDeltaMs > 0.0f)
+			{
+				float currentBaseFPS = 1000.0f / frameDeltaMs;
+
+				if (currentBaseFPS < g_MinBaseFPS)
+				{
+					if (!m_InterpolationDisabledForPerf)
+					{
+						m_InterpolationDisabledForPerf = true;
+						spdlog::warn("Base FPS ({:.1f}) below threshold ({:.1f}), disabling frame interpolation",
+							currentBaseFPS, g_MinBaseFPS);
+					}
+
+					return FFX_OK;
+				}
+				else if (m_InterpolationDisabledForPerf)
+				{
+					m_InterpolationDisabledForPerf = false;
+					spdlog::info("Base FPS ({:.1f}) recovered above threshold ({:.1f}), re-enabling frame interpolation",
+						currentBaseFPS, g_MinBaseFPS);
+				}
+			}
+		}
 
 		// Record commands
 		if (auto status = ffxOpticalflowContextDispatch(&m_OpticalFlowContext.value(), &fsrOfDispatchDesc); status != FFX_OK)
@@ -343,7 +438,7 @@ bool FFFrameInterpolator::BuildFrameInterpolationParameters(
 	desc.InputOpticalFlowSceneChangeDetection = m_SharedBackendInterface.fpGetResource(&m_SharedBackendInterface, *m_TexSharedOpticalFlowSCD);
 
 	desc.OpticalFlowScale = { 1.0f / m_PostUpscaleRenderWidth, 1.0f / m_PostUpscaleRenderHeight };
-	desc.OpticalFlowBlockSize = 8;
+	desc.OpticalFlowBlockSize = g_OpticalFlowBlockSize;
 
 	FfxDimensions2D mvecExtents = {
 		NGXParameters->GetUIntOrDefault("DLSSG.MVecsSubrectWidth", 0),
@@ -376,6 +471,16 @@ bool FFFrameInterpolator::BuildFrameInterpolationParameters(
 	desc.HDR = NGXParameters->GetUIntOrDefault("DLSSG.ColorBuffersHDR", 0) != 0;
 	desc.DepthInverted = NGXParameters->GetUIntOrDefault("DLSSG.DepthInverted", 0) != 0;
 	desc.Reset = NGXParameters->GetUIntOrDefault("DLSSG.Reset", 0) != 0;
+
+	// Apply game engine quirks
+	if (HasQuirk(m_ActiveQuirks, GameQuirk::DepthInverted))
+		desc.DepthInverted = true;
+
+	if (HasQuirk(m_ActiveQuirks, GameQuirk::MotionVectorScaleOverride))
+	{
+		desc.MotionVectorScale.x = m_QuirkMVScaleX;
+		desc.MotionVectorScale.y = m_QuirkMVScaleY;
+	}
 
 	auto loadCameraMatrix = [&]()
 	{
@@ -443,7 +548,7 @@ bool FFFrameInterpolator::BuildFrameInterpolationParameters(
 
 		// BUG: RTX Remix-based games pass in a FOV of 0. This is a kludge.
 		if (desc.CameraFovAngleVertical == 0.0f)
-			desc.CameraFovAngleVertical = 90.0f;
+			desc.CameraFovAngleVertical = g_DefaultFOV;
 
 		if (desc.CameraFovAngleVertical > 10.0f)
 			desc.CameraFovAngleVertical *= std::numbers::pi_v<float> / 180.0f;
@@ -462,6 +567,16 @@ bool FFFrameInterpolator::BuildFrameInterpolationParameters(
 	}
 
 	desc.MinMaxLuminance = m_HDRLuminanceRange;
+
+	// Generation Rect: Manual config for custom interpolation region
+	desc.InterpolationRectLeft = g_GenerationRectLeft;
+	desc.InterpolationRectTop = g_GenerationRectTop;
+	desc.InterpolationRectWidth = g_GenerationRectWidth;
+	desc.InterpolationRectHeight = g_GenerationRectHeight;
+
+	// Auto-detected letterbox overrides when no manual rect is set
+	ApplyLetterboxToRect(desc.InterpolationRectLeft, desc.InterpolationRectTop,
+		desc.InterpolationRectWidth, desc.InterpolationRectHeight);
 
 	return true;
 }
@@ -573,4 +688,37 @@ void FFFrameInterpolator::DestroyOpticalFlowContext()
 	m_OpticalFlowContext.reset();
 	m_TexSharedOpticalFlowVector.reset();
 	m_TexSharedOpticalFlowSCD.reset();
+}
+
+void FFFrameInterpolator::ApplyLetterboxToRect(int& outLeft, int& outTop, int& outWidth, int& outHeight) const
+{
+	// Priority: Manual INI config > Auto-detected letterbox > Full screen
+
+	// If manual rect is configured, use it directly
+	if (outLeft > 0 || outTop > 0 || outWidth > 0 || outHeight > 0)
+		return;
+
+	// Apply auto-detected letterbox if available
+	if (m_Letterbox.enabled &&
+		(m_Letterbox.confirmedTopBar > 0 || m_Letterbox.confirmedBottomBar > 0 ||
+		 m_Letterbox.confirmedLeftBar > 0 || m_Letterbox.confirmedRightBar > 0))
+	{
+		outLeft = static_cast<int>(m_Letterbox.confirmedLeftBar);
+		outTop = static_cast<int>(m_Letterbox.confirmedTopBar);
+
+		const uint32_t activeWidth = m_SwapchainWidth - m_Letterbox.confirmedLeftBar - m_Letterbox.confirmedRightBar;
+		const uint32_t activeHeight = m_SwapchainHeight - m_Letterbox.confirmedTopBar - m_Letterbox.confirmedBottomBar;
+
+		outWidth = static_cast<int>(activeWidth);
+		outHeight = static_cast<int>(activeHeight);
+
+		if (!m_Letterbox.loggedDetection)
+		{
+			spdlog::info("[Letterbox] Auto-detected bars: top={}, bottom={}, left={}, right={} -> Rect({},{} {}x{})",
+				m_Letterbox.confirmedTopBar, m_Letterbox.confirmedBottomBar,
+				m_Letterbox.confirmedLeftBar, m_Letterbox.confirmedRightBar,
+				outLeft, outTop, outWidth, outHeight);
+			m_Letterbox.loggedDetection = true;
+		}
+	}
 }

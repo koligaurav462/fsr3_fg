@@ -12,6 +12,88 @@
 #pragma warning(pop)
 #include "NGX/NvNGX.h"
 #include "FFInterfaceWrapper.h"
+#include <mutex>
+
+// SDK 1.1.4: BackendContext_DX12 is no longer publicly exposed in the official SDK headers.
+// We must define it here to access internal backend state for custom resource allocation.
+// This struct must match the one in sdk/src/backends/dx12/ffx_dx12.cpp exactly.
+typedef struct BackendContext_DX12 {
+
+    typedef struct Resource
+    {
+#ifdef _DEBUG
+        wchar_t                 resourceName[64] = {};
+#endif
+        ID3D12Resource*         resourcePtr;
+        FfxResourceDescription  resourceDescription;
+        FfxResourceStates       initialState;
+        FfxResourceStates       currentState;
+        uint32_t                srvDescIndex;
+        uint32_t                uavDescIndex;
+        uint32_t                uavDescCount;
+    } Resource;
+
+    uint32_t refCount;
+    uint32_t maxEffectContexts;
+
+    ID3D12Device*           device = nullptr;
+
+    FfxGpuJobDescription*   pGpuJobs;
+    uint32_t                gpuJobCount;
+
+    uint32_t                nextRtvDescriptor;
+    ID3D12DescriptorHeap*   descHeapRtvCpu;
+
+    ID3D12DescriptorHeap*   descHeapSrvCpu;
+    ID3D12DescriptorHeap*   descHeapUavCpu;
+    ID3D12DescriptorHeap*   descHeapUavGpu;
+
+    uint32_t                descRingBufferSize;
+    uint32_t                descRingBufferBase;
+    ID3D12DescriptorHeap*   descRingBuffer;
+    uint32_t                descBindlessBase;
+
+    uint8_t*                pStagingRingBuffer;
+    uint32_t                stagingRingBufferBase = 0;
+
+    D3D12_RESOURCE_BARRIER  barriers[FFX_MAX_BARRIERS];
+    uint32_t                barrierCount;
+
+    IDXGIFactory*           dxgiFactory = nullptr;
+
+    typedef struct alignas(32) EffectContext {
+
+        FfxEffect           effectId;
+        uint32_t            nextStaticResource;
+        uint32_t            nextDynamicResource;
+        uint32_t            nextStaticUavDescriptor;
+        uint32_t            nextDynamicUavDescriptor;
+        uint32_t            bindlessTextureSrvHeapStart;
+        uint32_t            bindlessTextureSrvHeapSize;
+        uint32_t            bindlessBufferSrvHeapStart;
+        uint32_t            bindlessBufferSrvHeapSize;
+        uint32_t            bindlessTextureUavHeapStart;
+        uint32_t            bindlessTextureUavHeapSize;
+        uint32_t            bindlessBufferUavHeapStart;
+        uint32_t            bindlessBufferUavHeapSize;
+        uint32_t            bindlessBufferHeapStart;
+        uint32_t            bindlessBufferHeapEnd;
+        bool                active;
+        FfxEffectMemoryUsage vramUsage;
+
+    } EffectContext;
+
+    Resource*                   pResources;
+    EffectContext*              pEffectContexts;
+
+    FfxConstantAllocation       FallbackConstantAllocator(void* data, FfxUInt64 dataSize);
+    void*                       constantBufferMem;
+    ID3D12Resource*             constantBufferResource;
+    uint32_t                    constantBufferSize;
+    uint32_t                    constantBufferOffset;
+    std::mutex                  constantBufferMutex;
+
+} BackendContext_DX12;
 
 D3D12_RESOURCE_FLAGS ffxGetDX12ResourceFlags(FfxResourceUsage flags);
 D3D12_RESOURCE_STATES ffxGetDX12StateFromResourceState(FfxResourceStates state);
