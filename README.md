@@ -1,4 +1,17 @@
+**dlssg-to-fsr3 (Wealdly Fork)** — an enhanced fork of [Nukem9/dlssg-to-fsr3](https://github.com/Nukem9/dlssg-to-fsr3) with additional features and optimizations.
+
 **dlssg-to-fsr3** is a drop-in mod/replacement for games utilizing [Nvidia's DLSS-G Frame Generation](https://nvidianews.nvidia.com/news/nvidia-introduces-dlss-3-with-breakthrough-ai-powered-frame-generation-for-up-to-4x-performance) technology that allows people to use [AMD's FSR 3 Frame Generation](https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK) technology instead. Only RTX 1600, RTX 2000, and RTX 3000 series GPUs are supported.
+
+### What's different in this fork?
+
+- **FidelityFX SDK v1.1.4** — Upgraded from v1.1.3 with all necessary API adaptations.
+- **Game Engine Detection & Quirks** — Automatic per-game fixes for Unreal Engine, Unity, REDengine, and Frostbite titles (inverted depth, TAA jitter, motion vector overrides, HUDless buffer fixes).
+- **Automatic Letterbox Detection** — GPU-based detection of black bars for letterboxed/pillarboxed content, constraining frame interpolation to the active image area.
+- **Custom Interpolation Region** — Manual control over the interpolation rect via INI config, useful for ultrawide or non-standard aspect ratios.
+- **Configurable Tuning** — Expose optical flow block size, HDR luminance range, default FOV, async compute, and a minimum base FPS threshold via INI or environment variables.
+- **Performance Safety** — Frame interpolation auto-disables when base FPS drops below a configurable threshold, preventing further degradation.
+- **Async Compute** — Optional async compute support for frame interpolation workloads.
+- **Build Optimizations** — MSVC release builds use `/O2`, `/Oi`, `/Ot`, `/fp:fast`, and `/arch:AVX2`.
 
 Game-specific compatibility can be [found here](https://github.com/Nukem9/dlssg-to-fsr3/wiki/Game-Compatibility-List). Using dlssg-to-fsr3 in multiplayer games is ill advised and may lead to account bans. **Use at your own risk.**
 
@@ -69,10 +82,44 @@ Game-specific compatibility can be [found here](https://github.com/Nukem9/dlssg-
 2. Run `.\Make-Release.ps1` and wait for compilation.
 3. Build files from each configuration are written to the bin folder and archived. Done.
 
+## Configuration
+
+An optional `dlssg_to_fsr3.ini` file can be placed next to the game executable for advanced tuning. Key sections:
+
+| Section | Key | Default | Description |
+|---------|-----|---------|-------------|
+| `[Debug]` | `EnableDebugOverlay` | `0` | Show FSR 3 debug overlay |
+| `[Debug]` | `EnableDebugTearLines` | `0` | Show interpolation tear lines |
+| `[Tuning]` | `OpticalFlowBlockSize` | `8` | Optical flow block size |
+| `[Tuning]` | `DefaultFOV` | `90.0` | Fallback vertical FOV (degrees) when game provides 0 |
+| `[Tuning]` | `EnableAsyncCompute` | `1` | Enable async compute for frame interpolation |
+| `[Tuning]` | `MinBaseFPS` | `0` | Minimum base FPS threshold; disables FG when too low (0 = off) |
+| `[GenerationRect]` | `Left/Top/Width/Height` | `0` | Manual interpolation region (0 = full screen) |
+| `[GenerationRect]` | `EnableAutoLetterboxDetection` | `0` | Auto-detect black bars and constrain interpolation |
+
+All `[Tuning]` values can also be set via environment variables prefixed with `DLSSGTOFSR3_` (e.g. `DLSSGTOFSR3_MinBaseFPS=30`).
+
 ## Changelog
 
+See [CHANGELOG.md](CHANGELOG.md) for the full version history and [UNRELEASED.md](UNRELEASED.md) for in-development changes.
+
 <details>
-  <summary>Click to expand.</summary><br/>
+  <summary>Unreleased (click to expand)</summary><br/>
+
+  - Migrated to FidelityFX SDK v1.1.4 with API adaptations.
+  - Added automatic game engine detection and per-game quirk system (Unreal Engine, Unity, REDengine, Frostbite).
+  - Added GPU-based automatic letterbox/pillarbox detection for non-native aspect ratios (DX12).
+  - Added manual interpolation region support via INI (`[GenerationRect]`).
+  - Added configurable tuning parameters: optical flow block size, HDR luminance, FOV, async compute, min FPS threshold.
+  - Frame interpolation now auto-disables when base FPS drops below `MinBaseFPS` threshold.
+  - Added async compute support for frame interpolation.
+  - Proper frame ID tracking for the FSR 3 context.
+  - MSVC release build optimizations (`/O2`, `/Oi`, `/Ot`, `/fp:fast`, `/arch:AVX2`).
+  - INI config file now included in distribution output.
+</details>
+
+<details>
+  <summary>Previous releases (click to expand)</summary><br/>
 
 **Version 0.130**
   - Added support for newer Streamline plugin interposer paths.
