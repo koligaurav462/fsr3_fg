@@ -14,6 +14,7 @@ env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   VCPKG_FEATURE_FLAGS: dependencygraph
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+  VCPKG_DEFAULT_TRIPLET: x64-windows
 
 jobs:
   build-and-package:
@@ -54,40 +55,29 @@ jobs:
           $pixUrl = "https://www.nuget.org/api/v2/package/WinPixEventRuntime/1.0.240308001"
           $pixZip = "$env:TEMP\WinPixEventRuntime.zip"
           $pixDir = "$env:TEMP\WinPixEventRuntime"
-
           Invoke-WebRequest -Uri $pixUrl -OutFile $pixZip
           Expand-Archive -Path $pixZip -DestinationPath $pixDir -Force
-
           $dllSource = "$pixDir\bin\x64\WinPixEventRuntime.dll"
           $dllTarget = "${{ github.workspace }}\dependencies\FidelityFX-SDK\sdk\libs\pix\bin\x64\WinPixEventRuntime.dll"
-
           if (Test-Path $dllSource) {
             New-Item -ItemType Directory -Path (Split-Path $dllTarget -Parent) -Force
             Copy-Item $dllSource $dllTarget -Force
           }
-          
-      - name: Build and set up FidelityFX SDK
+
+      - name: Build FidelityFX SDK
         shell: cmd
         run: |
-          echo Checking SDK...
-
-          if not exist "%GITHUB_WORKSPACE%\dependencies\FidelityFX-SDK" (
-            echo ERROR: SDK missing
+          if not exist "%GITHUB_WORKSPACE%\dependencies\FidelityFX-SDK\sdk\BuildFidelityFXSDK.bat" (
+            echo ERROR: SDK build script missing
             exit /b 1
           )
-          
-          echo SDK found.
-
-          if exist "%GITHUB_WORKSPACE%\dependencies\Build-FFX-SDK.bat" (
-            echo Running BAT...
-            call "%GITHUB_WORKSPACE%\dependencies\Build-FFX-SDK.bat"
-          ) else (
-            echo No build script, skipping build.
-          )
+          cd /d "%GITHUB_WORKSPACE%\dependencies\FidelityFX-SDK\sdk"
+          call BuildFidelityFXSDK.bat
 
       - name: Build dlssg-to-fsr3
         shell: pwsh
         run: |
+          $env:VCPKG_DEFAULT_TRIPLET="x64-windows"
           & "${{ github.workspace }}\Make-Release.ps1"
 
       - name: Upload artifacts
