@@ -73,7 +73,6 @@ jobs:
         run: |
           Write-Host "Updating FidelityFX SDK submodules..."
           Set-Location -Path "${{ github.workspace }}\dependencies\FidelityFX-SDK"
-          git submodule update --init --recursive
           Set-Location -Path "${{ github.workspace }}"
           Write-Host "Building FidelityFX SDK with PowerShell script..."
           # call the PS1 script; ensure it is present and executable
