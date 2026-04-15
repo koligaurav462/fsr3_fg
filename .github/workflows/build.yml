@@ -22,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
           fetch-depth: 0
 
       - name: Set up GitHub Actions cache environment
@@ -31,12 +31,12 @@ jobs:
           script: |
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
             core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
-      # https://github.com/actions/runner-images/issues/6376
+
       - name: Set up Vcpkg environment
         shell: bash
         run: |
           echo "VCPKG_ROOT=$VCPKG_INSTALLATION_ROOT" >> $GITHUB_ENV
-      # Custom step is required because vcvarsall doesn't persist otherwise. VS2022 is the only option on windows-2022 runners.
+
       - name: Set up VS2022 toolset
         uses: ilammy/msvc-dev-cmd@v1
         with:
@@ -51,37 +51,45 @@ jobs:
       - name: Install WinPixEventRuntime
         shell: pwsh
         run: |
-          # Download the DLL directly from NuGet package
           $pixUrl = "https://www.nuget.org/api/v2/package/WinPixEventRuntime/1.0.240308001"
           $pixZip = "$env:TEMP\WinPixEventRuntime.zip"
           $pixDir = "$env:TEMP\WinPixEventRuntime"
-          Write-Host "Downloading WinPixEventRuntime package..."
+
           Invoke-WebRequest -Uri $pixUrl -OutFile $pixZip
           Expand-Archive -Path $pixZip -DestinationPath $pixDir -Force
-          # Copy the DLL to the expected location
+
           $dllSource = "$pixDir\bin\x64\WinPixEventRuntime.dll"
           $dllTarget = "${{ github.workspace }}\dependencies\FidelityFX-SDK\sdk\libs\pix\bin\x64\WinPixEventRuntime.dll"
+
           if (Test-Path $dllSource) {
             New-Item -ItemType Directory -Path (Split-Path $dllTarget -Parent) -Force
-            Copy-Item -Path $dllSource -Destination $dllTarget -Force
-            Write-Host "WinPixEventRuntime.dll copied to: $dllTarget"
-          } else {
-            Write-Host "WinPixEventRuntime.dll not found in package, continuing without it"
+            Copy-Item $dllSource $dllTarget -Force
           }
+          
       - name: Build and set up FidelityFX SDK
-        shell: pwsh
+        shell: cmd
         run: |
-          Write-Host "Updating FidelityFX SDK submodules..."
-          Set-Location -Path "${{ github.workspace }}\dependencies\FidelityFX-SDK"
-          Set-Location -Path "${{ github.workspace }}"
-          Write-Host "Building FidelityFX SDK with PowerShell script..."
-          # call the PS1 script; ensure it is present and executable
-          & "${{ github.workspace }}\dependencies\Build-FFX-SDK.ps1"
-      # Build project (all variants)
+          echo Checking SDK...
+
+          if not exist "%GITHUB_WORKSPACE%\dependencies\FidelityFX-SDK" (
+            echo ERROR: SDK missing
+            exit /b 1
+          )
+          
+          echo SDK found.
+
+          if exist "%GITHUB_WORKSPACE%\dependencies\Build-FFX-SDK.bat" (
+            echo Running BAT...
+            call "%GITHUB_WORKSPACE%\dependencies\Build-FFX-SDK.bat"
+          ) else (
+            echo No build script, skipping build.
+          )
+
       - name: Build dlssg-to-fsr3
         shell: pwsh
         run: |
           & "${{ github.workspace }}\Make-Release.ps1"
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -95,24 +103,15 @@ jobs:
         id: tag
         shell: pwsh
         run: |
-          $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
-          $tag = "release-$timestamp"
+          $tag = "release-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
           echo "tag=$tag" >> $env:GITHUB_OUTPUT
-          Write-Host "Generated tag: $tag"
+
       - name: Create Release
         if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: "DLSSG to FSR3 - ${{ steps.tag.outputs.tag }}"
-          body: |
-            Automated release built from commit ${{ github.sha }}
-            **Changes in this release:**
-            - Built from latest ${{ github.ref_name }} branch
-            - Commit: ${{ github.sha }}
-            - Workflow run: ${{ github.run_number }}
-            **Installation:**
-            Download the appropriate ZIP file for your use case and follow the installation instructions in the README.
           files: |
             ${{ github.workspace }}/bin/built-packages/*.zip
           draft: false
