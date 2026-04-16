@@ -1,4 +1,4 @@
-name: 'Build and publish artifacts'
+name: Build and publish artifacts
 
 on:
   push:
@@ -43,7 +43,7 @@ jobs:
         with:
           arch: x64
 
-      - name: Install and set up Vulkan SDK
+      - name: Install Vulkan SDK
         uses: humbletim/install-vulkan-sdk@v1.2
         with:
           version: 1.4.309.0
@@ -67,12 +67,19 @@ jobs:
       - name: Build FidelityFX SDK
         shell: cmd
         run: |
-          if not exist "%GITHUB_WORKSPACE%\dependencies\FidelityFX-SDK\sdk\BuildFidelityFXSDK.bat" (
-            echo ERROR: SDK build script missing
+          cd /d "%GITHUB_WORKSPACE%\dependencies\FidelityFX-SDK\sdk"
+
+          cmake -B build -S . ^
+            -DFFX_API_BACKEND=VK ^
+            -DCMAKE_BUILD_TYPE=Release ^
+            -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+
+          cmake --build build --config Release
+
+          if not exist "build\bin\ffx_sdk\ffx_backend_vk_x64.lib" (
+            echo FFX BUILD FAILED
             exit /b 1
           )
-          cd /d "%GITHUB_WORKSPACE%\dependencies\FidelityFX-SDK\sdk"
-          call BuildFidelityFXSDK.bat
 
       - name: Build dlssg-to-fsr3
         shell: pwsh
@@ -83,9 +90,8 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: 'dlssg-to-fsr3-ci-test'
-          path: |
-            ${{ github.workspace }}/bin/built-packages/*.zip
+          name: dlssg-to-fsr3-ci-test
+          path: ${{ github.workspace }}/bin/built-packages/*.zip
           if-no-files-found: error
 
       - name: Generate release tag
@@ -102,8 +108,7 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: "DLSSG to FSR3 - ${{ steps.tag.outputs.tag }}"
-          files: |
-            ${{ github.workspace }}/bin/built-packages/*.zip
+          files: ${{ github.workspace }}/bin/built-packages/*.zip
           draft: false
           prerelease: false
           make_latest: true
