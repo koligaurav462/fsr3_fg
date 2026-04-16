@@ -15,11 +15,10 @@ env:
   VCPKG_FEATURE_FLAGS: dependencygraph
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
   VCPKG_DEFAULT_TRIPLET: x64-windows
-
+  
 jobs:
   build-and-package:
     runs-on: windows-2022
-
     steps:
       - uses: actions/checkout@v4
         with:
@@ -35,8 +34,7 @@ jobs:
 
       - name: Set up Vcpkg environment
         shell: bash
-        run: |
-          echo "VCPKG_ROOT=$VCPKG_INSTALLATION_ROOT" >> $GITHUB_ENV
+        run: echo "VCPKG_ROOT=$VCPKG_INSTALLATION_ROOT" >> $GITHUB_ENV
 
       - name: Set up VS2022 toolset
         uses: ilammy/msvc-dev-cmd@v1
@@ -69,17 +67,26 @@ jobs:
         run: |
           cd /d "%GITHUB_WORKSPACE%\dependencies\FidelityFX-SDK\sdk"
 
-          cmake -B build -S . ^
+          cmake -B build-dx12 -S . ^
+            -A x64 ^
+            -DFFX_API_BACKEND=DX12 ^
+            -DCMAKE_BUILD_TYPE=Release ^
+            -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+
+          cmake --build build-dx12 --config Release
+          if errorlevel 1 exit /b 1
+
+          cmake -B build-vk -S . ^
+            -A x64 ^
             -DFFX_API_BACKEND=VK ^
             -DCMAKE_BUILD_TYPE=Release ^
             -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
 
-          cmake --build build --config Release
+          cmake --build build-vk --config Release
+          if errorlevel 1 exit /b 1
 
-          if not exist "build\bin\ffx_sdk\ffx_backend_vk_x64.lib" (
-            echo FFX BUILD FAILED
-            exit /b 1
-          )
+          if not exist "build-dx12\bin\ffx_sdk\ffx_backend_dx12_x64.lib" exit /b 1
+          if not exist "build-vk\bin\ffx_sdk\ffx_backend_vk_x64.lib" exit /b 1
 
       - name: Build dlssg-to-fsr3
         shell: pwsh
